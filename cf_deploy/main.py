@@ -223,6 +223,7 @@ def main():
     parser.add_argument("--region", help="AWS region to use", default=os.environ.get("AWS_DEFAULT_REGION", "eu-west-1"))
     parser.add_argument("--skip-wait", help="Disable waiting for stack to be deployed", action="store_true")
     parser.add_argument("--parallel", help="Deploy stacks in parallel", action="store_true")
+    parser.add_argument("--delete-deprecated", help="Delete stacks that are not in the config", action="store_true")
 
     args = parser.parse_args()
 
@@ -248,7 +249,7 @@ def main():
         for config in configs:
             deploy_stack(config, args)
 
-    if base_config:
+    if base_config and args.delete_deprecated:
         for stack in list_deprecated_stacks(base_config.prefix, args, configs):
             log.info("Deleting deprecated stack", name=stack)
             cf = boto3.client('cloudformation', region_name=args.region)
