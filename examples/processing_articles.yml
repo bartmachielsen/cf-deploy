@@ -1,0 +1,14 @@
+name: test
+
+template: |
+  AWSTemplateFormatVersion: 2010-09-09
+  Parameters:
+    Stage:
+      Type: String
+      Description: Stage Name
+
+  Resources:
+    SnsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: !Sub "test-${Stage}-test-test"

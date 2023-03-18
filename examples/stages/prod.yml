@@ -1,0 +1,10 @@
+prefix: "test-prod-"
+region: eu-west-1
+
+parameters:
+  Stage: prod
+
+tags:
+  Project: businessradar
+  Environment: prod
+  Owner: development
