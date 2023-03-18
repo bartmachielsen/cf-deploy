@@ -153,45 +153,46 @@ def deploy_stack(config: Config, arguments):
 
 
 def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[Config]:
-    for file_location in glob.glob(path):
-        with open(file_location, 'r') as config_file:
-            log.info("Loading config", file_location=file_location)
+    for p in (path if isinstance(path, list) else [path]):
+        for file_location in glob.glob(p):
+            with open(file_location, 'r') as config_file:
+                log.info("Loading config", file_location=file_location)
 
-            # Validate the config using pydantic
-            config = Config(**yaml.load(config_file, Loader=Loader))
+                # Validate the config using pydantic
+                config = Config(**yaml.load(config_file, Loader=Loader))
 
-            # Resolving references
-            for conf_key, conf_val in config.parameters.items():
-                if conf_val.startswith('!') and config.parameters.get(conf_val[1:]):
-                    log.info(
-                        "Resolving reference",
-                        conf_key=conf_key,
-                        conf_val=conf_val,
-                        resolved_val=config.parameters[conf_val[1:]]
-                    )
-                    config.parameters[conf_key] = config.parameters[conf_val[1:]]
+                # Resolving references
+                for conf_key, conf_val in config.parameters.items():
+                    if conf_val.startswith('!') and config.parameters.get(conf_val[1:]):
+                        log.info(
+                            "Resolving reference",
+                            conf_key=conf_key,
+                            conf_val=conf_val,
+                            resolved_val=config.parameters[conf_val[1:]]
+                        )
+                        config.parameters[conf_key] = config.parameters[conf_val[1:]]
 
-            # Determining stage
-            stage = config.stage
-            config.region = config.region or arguments.region
+                # Determining stage
+                stage = config.stage
+                config.region = config.region or arguments.region
 
-            # Setting default tags
-            config.tags = {
-                "Environment": stage,
-                "Name": f"{base_config.prefix or ''}{config.name}",
-                # "Project": arguments.project,
-                "DeployTool": "cf-deploy",
-                **config.tags,
-            }
+                # Setting default tags
+                config.tags = {
+                    "Environment": stage,
+                    "Name": f"{base_config.prefix or ''}{config.name}",
+                    # "Project": arguments.project,
+                    "DeployTool": "cf-deploy",
+                    **config.tags,
+                }
 
-            if config.template.startswith('s3://'):
-                bucket, key = config.template[5:].split('/', 1)
-                log.info("Downloading from S3", template=config.template)
-                s3 = boto3.client('s3', region_name=config.region)
-                response = s3.get_object(Bucket=bucket, Key=key)
-                config.template = response['Body'].read().decode('utf-8')
+                if config.template.startswith('s3://'):
+                    bucket, key = config.template[5:].split('/', 1)
+                    log.info("Downloading from S3", template=config.template)
+                    s3 = boto3.client('s3', region_name=config.region)
+                    response = s3.get_object(Bucket=bucket, Key=key)
+                    config.template = response['Body'].read().decode('utf-8')
 
-            yield config
+                yield config
 
 
 def list_deprecated_stacks(prefix: str, arguments, configs: List[Config]) -> Iterable[str]:
@@ -215,7 +216,7 @@ def list_deprecated_stacks(prefix: str, arguments, configs: List[Config]) -> Ite
 
 def main():
     parser = argparse.ArgumentParser(description='Automate CloudFormation deployments')
-    parser.add_argument('-c', '--config', required=True, help='Config file or multiple files when using a pattern')
+    parser.add_argument('-c', '--config', required=True, help='Config file or multiple files when using a pattern', nargs='+')
     parser.add_argument('-b', '--base', help='Base configs file to use')
     parser.add_argument("--confirmation-required", help="Ask for confirmation before deploying", action="store_true")
     parser.add_argument("--debug", help="Enable debug logging", action="store_true")
