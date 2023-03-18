@@ -43,6 +43,8 @@ def process_pyproject_toml(file_path: str) -> None:
     current_version = data["tool"]["poetry"]["version"]
     last_commit_version = version_in_git_last_commit(file_path)
 
+    print(current_version, last_commit_version)
+
     if current_version == last_commit_version:
         new_version = increment_version(current_version)
         with open(file_path, "w") as file:
