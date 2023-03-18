@@ -1,6 +1,10 @@
 # cf-deploy
 cf-deploy is a package to automate CloudFormation deployments. It simplifies the deployment process by allowing you to use YAML configuration files to define your stack parameters and resources.
 
+Features:
+- Merge multiple configuration files to create a single CloudFormation stack
+- 
+
 ## Installation
 To install cf-deploy, run the following command:
 
@@ -18,8 +22,8 @@ template: s3://my-bucket/my-template.yaml
 deployment_stages:
   - dev
   - prod
-And a sample environment-specific configuration file, dev.yaml:
 ```
+And a sample environment-specific configuration file, dev.yaml:
 
 ```yaml
 name: my-stack-dev
@@ -27,9 +31,10 @@ prefix: dev-
 parameters:
   Stage: dev
   InstanceType: t2.micro
-Deploying a CloudFormation stack
-To deploy a CloudFormation stack using cf-deploy, run the following command:
 ```
+
+## Deploying a CloudFormation stack
+To deploy a CloudFormation stack using cf-deploy, run the following command:
 
 ```bash
 cf-deploy -b base.yaml -c dev.yaml
