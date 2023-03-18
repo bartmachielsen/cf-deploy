@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cf-deploy"
-version = "0.1.0"
+version = "0.1.6"
 description = "A package to automate CloudFormation deployments"
 authors = ["Bart Machielsen <bartmachielsen@gmail.com>"]
 license = "MIT"
@@ -17,6 +17,7 @@ pydantic = "^1.9.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
+pre-commit = "^2.15.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
