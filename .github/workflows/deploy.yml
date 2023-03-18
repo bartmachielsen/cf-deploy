@@ -1,16 +1,36 @@
-name: Publish
+name: Publish to PyPI
+
 on:
   push:
     branches:
       - master
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Pull repo
-        uses: actions/checkout@master
-      - name: Upload package
-        uses: bartmachielsen/pip-upload-action@master
-        with:
-          username: '__token__'
-          password: ${{ secrets.PIP_PASSWORD }}
+    - name: Check out repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+
+    - name: Install dependencies
+      run: |
+        poetry install
+
+    - name: Build package
+      run: |
+        poetry build
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        user: __token__
+        password: ${{ secrets.PIP_PASSWORD }}
