@@ -139,7 +139,8 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     )
 
     if change_set['Status'] == 'FAILED':
-        if "The submitted information didn't contain changes" in change_set['StatusReason']:
+        if "The submitted information didn't contain changes" in change_set['StatusReason'] or \
+                "No updates are to be performed." in change_set['StatusReason']:
             (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
             return
 
@@ -227,6 +228,11 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
                     s3 = boto3.client('s3', region_name=config.region)
                     response = s3.get_object(Bucket=bucket, Key=key)
                     config.template = response['Body'].read().decode('utf-8')
+
+                # Try to open as file path
+                if os.path.exists(config.template):
+                    with open(config.template, 'r') as template_file:
+                        config.template = template_file.read()
 
                 yield config
 
