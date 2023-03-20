@@ -5,7 +5,7 @@ import glob
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, Future
 from functools import partial
 from pathlib import Path
 from typing import Optional, Generator, Iterable, List
@@ -51,14 +51,13 @@ def track_stack_events(stack_name, region, verbose=True):
         for event in reversed(events['StackEvents']):
             event_id = event['EventId']
             if event_id not in seen_event_ids and event['Timestamp'].timestamp() > start:
-                if verbose:
-                    log.info(
-                        "Stack event",
-                        timestamp=event['Timestamp'],
-                        resource_status=event['ResourceStatus'],
-                        resource_type=event['ResourceType'],
-                        logical_resource_id=event['LogicalResourceId'],
-                    )
+                log.msg(logging.INFO if verbose else logging.DEBUG,
+                    "Stack event",
+                    timestamp=event['Timestamp'],
+                    resource_status=event['ResourceStatus'],
+                    resource_type=event['ResourceType'],
+                    logical_resource_id=event['LogicalResourceId'],
+                )
                 seen_event_ids.add(event_id)
 
         stack = cf.describe_stacks(StackName=stack_name)
@@ -86,7 +85,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     ), None)
 
     if stack and "IN_PROGRESS" in stack["StackStatus"] and "REVIEW_IN_PROGRESS" not in stack["StackStatus"]:
-        log.warning("Stack is already in progress", name=stack_name)
+        (log.info if verbose else log.debug)("Stack is already in progress", name=stack_name)
         track_stack_events(stack_name, config.region)
 
     # Parse template body
@@ -95,7 +94,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     parameter_keys = template_yaml.get("Parameters", {}).keys()
 
     # Create change set
-    log.info("Creating change set", name=stack_name)
+    (log.info if verbose else log.debug)("Creating change set", name=stack_name)
     try:
         change_set_response = cf.create_change_set(
             StackName=stack_name,
@@ -120,7 +119,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     except ClientError as e:
         error = e.response["Error"]
         if error["Code"] == "ValidationError" and "No updates are to be performed" in error["Message"]:
-            log.info("No changes to deploy", name=stack_name)
+            (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
             return
         log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
         return
@@ -142,31 +141,30 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     if change_set['Status'] == 'FAILED':
         if "The submitted information didn't contain changes" in change_set['StatusReason']:
-            log.info("No changes to deploy", name=stack_name)
+            (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
             return
 
         log.error("Change set failed", reason=change_set['StatusReason'])
         return
 
     # Print changes
-    if verbose:
-        for change in change_set['Changes']:
-            log.info(
-                "Change",
-                resource_type=change['ResourceChange']['ResourceType'],
-                action=change['ResourceChange']['Action'],
-                replacement=change['ResourceChange'].get("Replacement"),
-                logical_resource_id=change['ResourceChange']['LogicalResourceId'],
-            )
+    for change in change_set['Changes']:
+        log.msg(logging.INFO if verbose else logging.DEBUG,
+            "Change",
+            resource_type=change['ResourceChange']['ResourceType'],
+            action=change['ResourceChange']['Action'],
+            replacement=change['ResourceChange'].get("Replacement"),
+            logical_resource_id=change['ResourceChange']['LogicalResourceId'],
+        )
 
     return change_set_response['Id']
 
 
-def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, progress_bar=None):
+def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, verbose=True):
     try:
-        change_set_id = create_change_stack(stack_name, config, base_config , verbose=not progress_bar)
+        change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
     except Exception as e:
-        log.exception(e)
+        log.exception(e, stack_name=stack_name)
         return
 
     if arguments.dry_run or not change_set_id:
@@ -177,7 +175,8 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
             log.info("Aborting deployment")
             return
 
-    log.info("Deploying", name=stack_name)
+    (log.info if verbose else log.debug)("Deploying", name=stack_name)
+
     cf = boto3.client('cloudformation', region_name=config.region)
     cf.execute_change_set(
         StackName=stack_name,
@@ -185,11 +184,9 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     )
 
     if not arguments.skip_wait:
-        track_stack_events(stack_name, config.region, verbose=not progress_bar)
+        track_stack_events(stack_name, config.region, verbose=verbose)
 
-    log.info("Finished Deployment", name=stack_name)
-    if progress_bar:
-        progress_bar.update(1)
+    (log.info if verbose else log.debug)("Finished Deployment", name=stack_name)
 
 
 def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[Config]:
@@ -285,11 +282,20 @@ def main():
     if args.parallel:
         log.info("Deploying stacks in parallel")
         with ThreadPoolExecutor(max_workers=args.concurrency) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
-            deploy_stack_with_progress = partial(deploy_stack, progress_bar=progress_bar)
-
+            futures: List[Future] = []
             for config in configs:
                 stack_name = f"{base_config.prefix or ''}{config.name}"
-                executor.submit(deploy_stack_with_progress, stack_name, config, base_config, args)
+                futures.append(executor.submit(deploy_stack, stack_name, config, base_config, args, False))
+
+            while futures:
+                for future in list(futures):
+                    if future.done():
+                        progress_bar.update(1)
+                        futures.remove(future)
+
+                progress_bar.display()
+                time.sleep(0.5)
+
     else:
         for config in configs:
             stack_name = f"{base_config.prefix or ''}{config.name}"
