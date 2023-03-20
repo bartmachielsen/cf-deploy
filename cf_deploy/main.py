@@ -187,6 +187,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     if not arguments.skip_wait:
         track_stack_events(stack_name, config.region, verbose=not progress_bar)
 
+    log.info("Finished Deployment", name=stack_name)
     if progress_bar:
         progress_bar.update(1)
 
