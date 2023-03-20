@@ -14,7 +14,7 @@ PyYAML = "^5.4.1"
 structlog = "^21.5.0"
 colorama = "^0.4.4"
 pydantic = "^1.9.0"
-tqdm = "^4.62.3"
+tqdm = "^4.65.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
