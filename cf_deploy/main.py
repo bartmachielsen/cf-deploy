@@ -51,7 +51,7 @@ def track_stack_events(stack_name, region, verbose=True):
         for event in reversed(events['StackEvents']):
             event_id = event['EventId']
             if event_id not in seen_event_ids and event['Timestamp'].timestamp() > start:
-                log.msg(logging.INFO if verbose else logging.DEBUG,
+                (log.info if verbose else log.debug)(
                     "Stack event",
                     timestamp=event['Timestamp'],
                     resource_status=event['ResourceStatus'],
@@ -90,8 +90,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Parse template body
     template_yaml = yaml.safe_load(config.template)
-    # parameter_keys = [p["ParameterKey"] for p in template_yaml.get("Parameters", {}).keys()]
-    parameter_keys = template_yaml.get("Parameters", {}).keys()
+    parameter_keys = template_yaml.get("Parameters", {}).keys() if template_yaml and isinstance(template_yaml, dict) else []
 
     # Create change set
     (log.info if verbose else log.debug)("Creating change set", name=stack_name)
@@ -149,7 +148,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Print changes
     for change in change_set['Changes']:
-        log.msg(logging.INFO if verbose else logging.DEBUG,
+        (log.info if verbose else log.debug)(
             "Change",
             resource_type=change['ResourceChange']['ResourceType'],
             action=change['ResourceChange']['Action'],
