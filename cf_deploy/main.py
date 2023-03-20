@@ -92,7 +92,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     # Parse template body
     template_yaml = yaml.safe_load(config.template)
     # parameter_keys = [p["ParameterKey"] for p in template_yaml.get("Parameters", {}).keys()]
-    parameter_keys = template_yaml["Parameters"].keys()
+    parameter_keys = template_yaml.get("Parameters", {}).keys()
 
     # Create change set
     log.info("Creating change set", name=stack_name)
