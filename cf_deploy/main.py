@@ -26,6 +26,18 @@ logging.basicConfig(level=logging.INFO)
 log = structlog.get_logger("cf-deploy")
 
 
+def generic_constructor(loader, tag_suffix, node):
+    if isinstance(node, yaml.ScalarNode):
+        return loader.construct_scalar(node)
+    elif isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    elif isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+
+
+yaml.SafeLoader.add_multi_constructor(u'!', generic_constructor)
+
+
 def track_stack_events(stack_name, region):
     cf = boto3.client('cloudformation', region_name=region)
     start = time.time()
@@ -55,7 +67,7 @@ def track_stack_events(stack_name, region):
         time.sleep(5)
 
 
-def create_change_stack(stack_name, config: Config) -> Optional[str]:
+def create_change_stack(stack_name, config: Config, base_config: BaseConfig) -> Optional[str]:
     cf = boto3.client('cloudformation', region_name=config.region)
 
     # Describe stacks with name
@@ -74,24 +86,41 @@ def create_change_stack(stack_name, config: Config) -> Optional[str]:
         log.warning("Stack is already in progress", name=stack_name)
         track_stack_events(stack_name, config.region)
 
+    # Parse template body
+    template_yaml = yaml.safe_load(config.template)
+    # parameter_keys = [p["ParameterKey"] for p in template_yaml.get("Parameters", {}).keys()]
+    parameter_keys = template_yaml["Parameters"].keys()
+
     # Create change set
     log.info("Creating change set", name=stack_name)
-    change_set_response = cf.create_change_set(
-        StackName=stack_name,
-        TemplateBody=config.template,
-        Parameters=[{'ParameterKey': k, 'ParameterValue': str(v)} for k, v in config.parameters.items()],
-        Tags=[{'Key': k, 'Value': str(v)} for k, v in {**config.tags, 'Name': stack_name}.items()],
-        Capabilities=config.capabilities or [],
-        ChangeSetName=f"{stack_name}-changeset-{int(time.time())}",
-        ChangeSetType=(
-            "UPDATE"
-            if stack and stack["StackStatus"] != "DELETE_COMPLETE"
-               and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
-            else
-            "CREATE"
-        ),
-        IncludeNestedStacks=True,
-    )
+    try:
+        change_set_response = cf.create_change_set(
+            StackName=stack_name,
+            TemplateBody=config.template,
+            Parameters=[
+                {'ParameterKey': k, 'ParameterValue': str(v)}
+                for k, v in {**base_config.parameters, **config.parameters}.items()
+                if k in parameter_keys
+            ],
+            Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
+            Capabilities=config.capabilities or [],
+            ChangeSetName=f"{stack_name}-changeset-{int(time.time())}",
+            ChangeSetType=(
+                "UPDATE"
+                if stack and stack["StackStatus"] != "DELETE_COMPLETE"
+                   and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
+                else
+                "CREATE"
+            ),
+            IncludeNestedStacks=True,
+        )
+    except ClientError as e:
+        error = e.response["Error"]
+        if error["Code"] == "ValidationError" and "No updates are to be performed" in error["Message"]:
+            log.info("No changes to deploy", name=stack_name)
+            return
+        log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
+        return
 
     # Wait for changeset to be created
     waiter = cf.get_waiter('change_set_create_complete')
@@ -99,7 +128,7 @@ def create_change_stack(stack_name, config: Config) -> Optional[str]:
         waiter.wait(
             ChangeSetName=change_set_response['Id']
         )
-    except WaiterError as e:
+    except WaiterError:
         pass
 
     # Get Change set
@@ -129,9 +158,12 @@ def create_change_stack(stack_name, config: Config) -> Optional[str]:
     return change_set_response['Id']
 
 
-def deploy_stack(config: Config, arguments):
-    stack_name = f"{config.prefix or ''}{config.name}"
-    change_set_id = create_change_stack(stack_name, config)
+def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments):
+    try:
+        change_set_id = create_change_stack(stack_name, config, base_config)
+    except Exception as e:
+        log.exception(e)
+        return
 
     if arguments.dry_run or not change_set_id:
         return
@@ -245,10 +277,12 @@ def main():
         log.info("Deploying stacks in parallel")
         with ThreadPoolExecutor(max_workers=10) as executor:
             for config in configs:
-                executor.submit(deploy_stack, config, args)
+                stack_name = f"{base_config.prefix or ''}{config.name}"
+                executor.submit(deploy_stack, stack_name, config, base_config, args)
     else:
         for config in configs:
-            deploy_stack(config, args)
+            stack_name = f"{base_config.prefix or ''}{config.name}"
+            deploy_stack(stack_name, config, base_config, args)
 
     if base_config and args.delete_deprecated:
         for stack in list_deprecated_stacks(base_config.prefix, args, configs):
