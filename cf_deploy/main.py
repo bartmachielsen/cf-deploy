@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Optional, Generator, Iterable, List
 
@@ -14,6 +15,7 @@ import botocore
 import yaml
 from botocore.exceptions import ClientError, ValidationError, WaiterError
 from deepmerge import always_merger
+from tqdm import tqdm
 from yaml import Loader
 from cf_deploy.utils.logging import configure_structlog
 import structlog
@@ -38,7 +40,7 @@ def generic_constructor(loader, tag_suffix, node):
 yaml.SafeLoader.add_multi_constructor(u'!', generic_constructor)
 
 
-def track_stack_events(stack_name, region):
+def track_stack_events(stack_name, region, verbose=True):
     cf = boto3.client('cloudformation', region_name=region)
     start = time.time()
     seen_event_ids = set()
@@ -49,13 +51,14 @@ def track_stack_events(stack_name, region):
         for event in reversed(events['StackEvents']):
             event_id = event['EventId']
             if event_id not in seen_event_ids and event['Timestamp'].timestamp() > start:
-                log.info(
-                    "Stack event",
-                    timestamp=event['Timestamp'],
-                    resource_status=event['ResourceStatus'],
-                    resource_type=event['ResourceType'],
-                    logical_resource_id=event['LogicalResourceId'],
-                )
+                if verbose:
+                    log.info(
+                        "Stack event",
+                        timestamp=event['Timestamp'],
+                        resource_status=event['ResourceStatus'],
+                        resource_type=event['ResourceType'],
+                        logical_resource_id=event['LogicalResourceId'],
+                    )
                 seen_event_ids.add(event_id)
 
         stack = cf.describe_stacks(StackName=stack_name)
@@ -67,7 +70,7 @@ def track_stack_events(stack_name, region):
         time.sleep(5)
 
 
-def create_change_stack(stack_name, config: Config, base_config: BaseConfig) -> Optional[str]:
+def create_change_stack(stack_name, config: Config, base_config: BaseConfig, verbose=True) -> Optional[str]:
     cf = boto3.client('cloudformation', region_name=config.region)
 
     # Describe stacks with name
@@ -146,21 +149,22 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig) -> 
         return
 
     # Print changes
-    for change in change_set['Changes']:
-        log.info(
-            "Change",
-            resource_type=change['ResourceChange']['ResourceType'],
-            action=change['ResourceChange']['Action'],
-            replacement=change['ResourceChange'].get("Replacement"),
-            logical_resource_id=change['ResourceChange']['LogicalResourceId'],
-        )
+    if verbose:
+        for change in change_set['Changes']:
+            log.info(
+                "Change",
+                resource_type=change['ResourceChange']['ResourceType'],
+                action=change['ResourceChange']['Action'],
+                replacement=change['ResourceChange'].get("Replacement"),
+                logical_resource_id=change['ResourceChange']['LogicalResourceId'],
+            )
 
     return change_set_response['Id']
 
 
-def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments):
+def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, progress_bar=None):
     try:
-        change_set_id = create_change_stack(stack_name, config, base_config)
+        change_set_id = create_change_stack(stack_name, config, base_config , verbose=not progress_bar)
     except Exception as e:
         log.exception(e)
         return
@@ -181,7 +185,10 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments)
     )
 
     if not arguments.skip_wait:
-        track_stack_events(stack_name, config.region)
+        track_stack_events(stack_name, config.region, verbose=not progress_bar)
+
+    if progress_bar:
+        progress_bar.update(1)
 
 
 def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[Config]:
@@ -275,10 +282,12 @@ def main():
     # Load configs
     if args.parallel:
         log.info("Deploying stacks in parallel")
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
+            deploy_stack_with_progress = partial(deploy_stack, progress_bar=progress_bar)
+
             for config in configs:
                 stack_name = f"{base_config.prefix or ''}{config.name}"
-                executor.submit(deploy_stack, stack_name, config, base_config, args)
+                executor.submit(deploy_stack_with_progress, stack_name, config, base_config, args, progress_bar)
     else:
         for config in configs:
             stack_name = f"{base_config.prefix or ''}{config.name}"
