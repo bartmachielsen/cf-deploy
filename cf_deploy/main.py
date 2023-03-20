@@ -191,7 +191,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
 
 def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[Config]:
     for p in (path if isinstance(path, list) else [path]):
-        for file_location in glob.glob(p):
+        for file_location in glob.glob(p, recursive=True):
             with open(file_location, 'r') as config_file:
                 log.info("Loading config", file_location=file_location)
 
