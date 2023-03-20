@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cf-deploy"
-version = "0.1.15"
+version = "0.1.16"
 description = "A package to automate CloudFormation deployments"
 authors = ["Bart Machielsen <bartmachielsen@gmail.com>"]
 license = "MIT"

@@ -90,7 +90,20 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Parse template body
     template_yaml = yaml.safe_load(config.template)
-    parameter_keys = template_yaml.get("Parameters", {}).keys() if template_yaml and isinstance(template_yaml, dict) else []
+    template_parameter_keys = template_yaml.get("Parameters", {}).keys() if template_yaml and isinstance(template_yaml, dict) else []
+
+    parameters = {**base_config.parameters, **config.parameters}
+
+    # Resolving references
+    for conf_key, conf_val in parameters.items():
+        if conf_val.startswith('!') and config.parameters.get(conf_val[1:]):
+            (log.info if verbose else log.debug)(
+                "Resolving reference",
+                conf_key=conf_key,
+                conf_val=conf_val,
+                resolved_val=config.parameters[conf_val[1:]]
+            )
+            parameters[conf_key] = parameters[conf_val[1:]]
 
     # Create change set
     (log.info if verbose else log.debug)("Creating change set", name=stack_name)
@@ -100,8 +113,8 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
             TemplateBody=config.template,
             Parameters=[
                 {'ParameterKey': k, 'ParameterValue': str(v)}
-                for k, v in {**base_config.parameters, **config.parameters}.items()
-                if k in parameter_keys
+                for k, v in parameters
+                if k in template_parameter_keys or not template_parameter_keys
             ],
             Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
             Capabilities=config.capabilities or [],
@@ -197,17 +210,6 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
 
                 # Validate the config using pydantic
                 config = Config(**yaml.load(config_file, Loader=Loader))
-
-                # Resolving references
-                for conf_key, conf_val in config.parameters.items():
-                    if conf_val.startswith('!') and config.parameters.get(conf_val[1:]):
-                        log.info(
-                            "Resolving reference",
-                            conf_key=conf_key,
-                            conf_val=conf_val,
-                            resolved_val=config.parameters[conf_val[1:]]
-                        )
-                        config.parameters[conf_key] = config.parameters[conf_val[1:]]
 
                 # Determining stage
                 stage = config.stage
