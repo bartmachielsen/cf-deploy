@@ -265,6 +265,7 @@ def main():
     parser.add_argument("--skip-wait", help="Disable waiting for stack to be deployed", action="store_true")
     parser.add_argument("--parallel", help="Deploy stacks in parallel", action="store_true")
     parser.add_argument("--delete-deprecated", help="Delete stacks that are not in the config", action="store_true")
+    parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=16, type=int)
 
     args = parser.parse_args()
 
@@ -283,7 +284,7 @@ def main():
     # Load configs
     if args.parallel:
         log.info("Deploying stacks in parallel")
-        with ThreadPoolExecutor(max_workers=10) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
+        with ThreadPoolExecutor(max_workers=args.concurrency) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
             deploy_stack_with_progress = partial(deploy_stack, progress_bar=progress_bar)
 
             for config in configs:
