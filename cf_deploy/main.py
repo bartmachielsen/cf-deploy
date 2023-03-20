@@ -287,7 +287,7 @@ def main():
 
             for config in configs:
                 stack_name = f"{base_config.prefix or ''}{config.name}"
-                executor.submit(deploy_stack_with_progress, stack_name, config, base_config, args, progress_bar)
+                executor.submit(deploy_stack_with_progress, stack_name, config, base_config, args)
     else:
         for config in configs:
             stack_name = f"{base_config.prefix or ''}{config.name}"
