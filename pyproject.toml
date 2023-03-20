@@ -17,7 +17,7 @@ pydantic = "^1.9.0"
 tqdm = "^4.65.0"
 
 [tool.poetry.dev-dependencies]
-pytest = "^6.2.5"
+pytest = "^7.2.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
