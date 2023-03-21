@@ -113,7 +113,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
             TemplateBody=config.template,
             Parameters=[
                 {'ParameterKey': k, 'ParameterValue': str(v)}
-                for k, v in parameters
+                for k, v in parameters.items()
                 if k in template_parameter_keys or not template_parameter_keys
             ],
             Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
