@@ -133,6 +133,12 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         if error["Code"] == "ValidationError" and "No updates are to be performed" in error["Message"]:
             (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
             return
+        if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
+            log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
+            cf.delete_stack(StackName=stack_name)
+            cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
+            log.info("Stack deleted, retrying change stack.", name=stack_name)
+            return create_change_stack(stack_name, config, base_config, verbose)
         log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
         return
 
@@ -212,12 +218,10 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
                 config = Config(**yaml.load(config_file, Loader=Loader))
 
                 # Determining stage
-                stage = config.stage
                 config.region = config.region or arguments.region
 
                 # Setting default tags
                 config.tags = {
-                    "Environment": stage,
                     "Name": f"{base_config.prefix or ''}{config.name}",
                     # "Project": arguments.project,
                     "DeployTool": "cf-deploy",
