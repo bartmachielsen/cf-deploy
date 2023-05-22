@@ -21,4 +21,5 @@ class Config(BaseModel):
     tags: Optional[Dict[str, Any]] = Field(defaultdict(str), description="Tags to be added to the CloudFormation stack resources")
     deployment_stages: Optional[List[str]] = Field([], description="List of stages where the stack will be deployed")
     disabled: Optional[bool] = Field(False, description="Whether the stack is disabled")
+    # delete_protected: Optional[bool] = Field(False, description="Whether the stack is protected from deletion")
     capabilities: Optional[List[str]] = Field([], description="List of capabilities needed for the CloudFormation stack")

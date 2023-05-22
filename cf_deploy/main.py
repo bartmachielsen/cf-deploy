@@ -218,6 +218,16 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
 
     (log.info if verbose else log.debug)("Deploying", name=stack_name)
 
+    # if config.delete_protected:
+    #     try:
+    #         stacks = cf.describe_stacks(StackName=stack_name)["Stacks"]
+    #     except ClientError:
+    #         stacks = []
+    #     cf.update_termination_protection(
+    #         EnableTerminationProtection=True,
+    #         StackName=stack_name
+    #     )
+
     cf.execute_change_set(
         StackName=stack_name,
         ChangeSetName=change_set_id,
@@ -233,7 +243,7 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
     for p in (path if isinstance(path, list) else [path]):
         for file_location in glob.glob(p, recursive=True):
             with open(file_location, 'r') as config_file:
-                log.info("Loading config", file_location=file_location)
+                log.debug("Loading config", file_location=file_location)
 
                 # Validate the config using pydantic
                 config = Config(**yaml.load(config_file, Loader=Loader))
@@ -251,7 +261,7 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
 
                 if config.template.startswith('s3://'):
                     bucket, key = config.template[5:].split('/', 1)
-                    log.info("Downloading from S3", template=config.template)
+                    log.debug("Downloading from S3", template=config.template)
                     s3 = boto3.client('s3', region_name=config.region)
                     response = s3.get_object(Bucket=bucket, Key=key)
                     config.template = response['Body'].read().decode('utf-8')
@@ -271,6 +281,10 @@ def list_deprecated_stacks(prefix: str, arguments, configs: List[Config]) -> Ite
     paginator = cf.get_paginator('list_stacks')
     for page in paginator.paginate():
         for stack in page["StackSummaries"]:
+            # Skip, is nested stack
+            if stack.get("RootId"):
+                continue
+
             if not stack["StackName"].startswith(prefix):
                 continue
 
@@ -278,6 +292,12 @@ def list_deprecated_stacks(prefix: str, arguments, configs: List[Config]) -> Ite
                 continue
 
             if any(config for config in configs if f"{prefix}{config.name}" == stack["StackName"]):
+                continue
+
+            # Get stack tags
+            stack_details = cf.describe_stacks(StackName=stack["StackName"])["Stacks"][0]
+            stack_tags = {tag["Key"]: tag["Value"] for tag in stack_details["Tags"]}
+            if stack_tags.get("DeployTool") != "cf-deploy":
                 continue
 
             yield stack["StackName"]
