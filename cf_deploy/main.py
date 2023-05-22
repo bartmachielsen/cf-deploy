@@ -334,21 +334,31 @@ def main():
 
     # Load configs
     if args.parallel:
-        log.info("Deploying stacks in parallel")
-        with ThreadPoolExecutor(max_workers=args.concurrency) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
-            futures: List[Future] = []
-            for config in configs:
-                stack_name = f"{base_config.prefix or ''}{config.name}"
-                futures.append(executor.submit(deploy_stack, stack_name, config, base_config, args, False))
+        try:
+            log.info("Deploying stacks in parallel")
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
+                futures: List[Future] = []
+                for config in configs:
+                    stack_name = f"{base_config.prefix or ''}{config.name}"
+                    futures.append(executor.submit(deploy_stack, stack_name, config, base_config, args, False))
 
-            while futures:
-                for future in list(futures):
-                    if future.done():
-                        progress_bar.update(1)
-                        futures.remove(future)
+                while futures:
+                    for future in list(futures):
+                        if future.done():
+                            try:
+                                future.result()  # This line will raise the exception if the function failed.
+                            except Exception as e:
+                                log.error(f"An error occurred during stack deployment: {e}")
+                                raise
+                            finally:
+                                progress_bar.update(1)
+                                futures.remove(future)
 
-                progress_bar.display()
-                time.sleep(0.5)
+                    progress_bar.display()
+                    time.sleep(0.5)
+        except Exception as e:
+            log.error(f"An error occurred during the parallel deployment of stacks: {e}")
+            raise
 
     else:
         for config in configs:
