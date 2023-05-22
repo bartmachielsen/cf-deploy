@@ -180,23 +180,10 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
 
 def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, verbose=True):
-    try:
-        change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
-    except Exception as e:
-        log.exception(e, stack_name=stack_name)
-        return
-
-    if arguments.dry_run or not change_set_id:
-        return
-
-    if arguments.confirmation_required:
-        if input("Do you want to deploy? (y/n)  ") != "y":
-            log.info("Aborting deployment")
-            return
-
     cf = boto3.client('cloudformation', region_name=config.region)
 
-    if config.disabled or (config.deployment_stages and arguments.stage not in config.deployment_stages):
+    if config.disabled or \
+            (base_config.stage and config.deployment_stages and base_config.stage not in config.deployment_stages):
         try:
             stacks = cf.describe_stacks(StackName=stack_name)["Stacks"]
         except ClientError:
@@ -215,6 +202,21 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
 
                     log.info("Stack deleted", name=stack_name)
         return
+
+
+    try:
+        change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
+    except Exception as e:
+        log.exception(e, stack_name=stack_name)
+        return
+
+    if arguments.dry_run or not change_set_id:
+        return
+
+    if arguments.confirmation_required:
+        if input("Do you want to deploy? (y/n)  ") != "y":
+            log.info("Aborting deployment")
+            return
 
     (log.info if verbose else log.debug)("Deploying", name=stack_name)
 

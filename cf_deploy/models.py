@@ -8,6 +8,7 @@ class BaseConfig(BaseModel):
     region: Optional[str] = Field(None, description="AWS region where the stack will be deployed")
     parameters: Optional[Dict[str, Any]] = Field(defaultdict(str), description="Parameters to be passed to the CloudFormation stack")
     tags: Optional[Dict[str, Any]] = Field(defaultdict(str), description="Tags to be added to the CloudFormation stack resources")
+    stage: Optional[str] = Field(None, description="Deployment stage for the stack")
 
 
 class Config(BaseModel):
