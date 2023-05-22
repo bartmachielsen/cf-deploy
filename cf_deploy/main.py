@@ -96,7 +96,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Resolving references
     for conf_key, conf_val in parameters.items():
-        if conf_val.startswith('!') and config.parameters.get(conf_val[1:]):
+        if str(conf_val).startswith('!') and config.parameters.get(conf_val[1:]):
             (log.info if verbose else log.debug)(
                 "Resolving reference",
                 conf_key=conf_key,
@@ -314,7 +314,7 @@ def main():
     parser.add_argument("--skip-wait", help="Disable waiting for stack to be deployed", action="store_true")
     parser.add_argument("--parallel", help="Deploy stacks in parallel", action="store_true")
     parser.add_argument("--delete-deprecated", help="Delete stacks that are not in the config", action="store_true")
-    parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=16, type=int)
+    parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=8, type=int)
 
     args = parser.parse_args()
 
