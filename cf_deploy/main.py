@@ -194,9 +194,30 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
             log.info("Aborting deployment")
             return
 
+    cf = boto3.client('cloudformation', region_name=config.region)
+
+    if config.disabled or (config.deployment_stages and arguments.stage not in config.deployment_stages):
+        try:
+            stacks = cf.describe_stacks(StackName=stack_name)["Stacks"]
+        except ClientError:
+            stacks = []
+
+        if stacks:
+            log.info("Deleting", name=stack_name)
+            cf.delete_stack(StackName=stack_name)
+
+            if not arguments.skip_wait:
+                try:
+                    track_stack_events(stack_name, config.region)
+                except ClientError as e:
+                    if "does not exist" not in str(e):
+                        raise e
+
+                    log.info("Stack deleted", name=stack_name)
+        return
+
     (log.info if verbose else log.debug)("Deploying", name=stack_name)
 
-    cf = boto3.client('cloudformation', region_name=config.region)
     cf.execute_change_set(
         StackName=stack_name,
         ChangeSetName=change_set_id,
