@@ -103,7 +103,8 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                 conf_val=conf_val,
                 resolved_val=config.parameters[conf_val[1:]]
             )
-            parameters[conf_key] = parameters[conf_val[1:]]
+            value = parameters[conf_val[1:]]
+            parameters[conf_key] = int(value) if str(value).isdigit() else value
 
     # Create change set
     (log.info if verbose else log.debug)("Creating change set", name=stack_name)
