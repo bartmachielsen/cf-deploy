@@ -153,10 +153,24 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         pass
 
     # Get Change set
-    change_set = cf.describe_change_set(
-        StackName=stack_name,
-        ChangeSetName=change_set_response['Id'],
-    )
+    sleep_backoff = 1
+    while True:
+        try:
+            change_set = cf.describe_change_set(
+                StackName=stack_name,
+                ChangeSetName=change_set_response['Id'],
+            )
+        except ClientError as e:
+            if "Throttling" not in e:
+                raise e
+
+            log.warning("Throttling, retrying", name=stack_name)
+            sleep_backoff = min(sleep_backoff * 2, 60)
+            time.sleep(sleep_backoff)
+            change_set = None
+
+        if change_set:
+            break
 
     if change_set['Status'] == 'FAILED':
         if "The submitted information didn't contain changes" in change_set['StatusReason'] or \
