@@ -96,15 +96,15 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Resolving references
     for conf_key, conf_val in parameters.items():
-        if str(conf_val).startswith('!') and config.parameters.get(conf_val[1:]):
+        if str(conf_val).startswith('!'):
             (log.info if verbose else log.debug)(
                 "Resolving reference",
                 conf_key=conf_key,
                 conf_val=conf_val,
-                resolved_val=config.parameters[conf_val[1:]]
+                resolved_val=parameters[conf_val[1:]]
             )
             value = parameters[conf_val[1:]]
-            parameters[conf_key] = int(value) if str(value).isdigit() else value
+            parameters[conf_key] = parameters[conf_val[1:]]
 
     # Create change set
     (log.info if verbose else log.debug)("Creating change set", name=stack_name)
