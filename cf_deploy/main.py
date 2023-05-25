@@ -161,7 +161,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                 ChangeSetName=change_set_response['Id'],
             )
         except ClientError as e:
-            if "Throttling" not in e:
+            if "Throttling" not in str(e):
                 raise e
 
             log.warning("Throttling, retrying", name=stack_name)
