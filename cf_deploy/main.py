@@ -279,11 +279,14 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     track_stack_events(stack_name, config.region)
                 except ClientError as e:
                     if "does not exist" not in str(e):
+                        log.exception(e, stack_name=stack_name)
                         raise e
 
                 log.info("Stack deleted", name=stack_name)
                 return deploy_stack(stack_name, config, base_config, arguments, verbose)
-            raise
+
+            log.exception(stack_resource_update_failed_error, stack_name=stack_name)
+            raise stack_resource_update_failed_error
 
     (log.info if verbose else log.debug)("Finished Deployment", name=stack_name)
 
@@ -396,8 +399,8 @@ def main():
                             try:
                                 future.result()  # This line will raise the exception if the function failed.
                             except Exception as e:
-                                log.error(f"An error occurred during stack deployment: {e}")
-                                raise
+                                log.exception(e)
+                                raise e
                             finally:
                                 progress_bar.update(1)
                                 futures.remove(future)
