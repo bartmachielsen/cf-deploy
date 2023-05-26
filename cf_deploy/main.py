@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import dataclasses
 import glob
 import logging
 import os
@@ -40,6 +41,11 @@ def generic_constructor(loader, tag_suffix, node):
 yaml.SafeLoader.add_multi_constructor(u'!', generic_constructor)
 
 
+@dataclasses.dataclass
+class StackResourceUpdateFailed(Exception):
+    reason: str
+
+
 def track_stack_events(stack_name, region, verbose=True):
     cf = boto3.client('cloudformation', region_name=region)
     start = time.time()
@@ -59,6 +65,11 @@ def track_stack_events(stack_name, region, verbose=True):
                     logical_resource_id=event['LogicalResourceId'],
                 )
                 seen_event_ids.add(event_id)
+
+                if event['ResourceStatus'].endswith('UPDATE_FAILED'):
+                    raise StackResourceUpdateFailed(
+                        reason=event["ResourceStatusReason"]
+                    )
 
         stack = cf.describe_stacks(StackName=stack_name)
         stack_status = stack['Stacks'][0]['StackStatus']
@@ -251,7 +262,25 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     )
 
     if not arguments.skip_wait:
-        track_stack_events(stack_name, config.region, verbose=verbose)
+        try:
+            track_stack_events(stack_name, config.region, verbose=verbose)
+        except StackResourceUpdateFailed as stack_resource_update_failed_error:
+            if "HandlerErrorCode: AlreadyExists" in stack_resource_update_failed_error.reason \
+                    and arguments.delete_recreate_on_exists_error:
+                log.warning(
+                    "Failed to update because of colliding resource, we have to delete stack and recreate", stack_name=stack_name
+                )
+                log.info("Deleting", name=stack_name)
+                cf.delete_stack(StackName=stack_name)
+                try:
+                    track_stack_events(stack_name, config.region)
+                except ClientError as e:
+                    if "does not exist" not in str(e):
+                        raise e
+
+                log.info("Stack deleted", name=stack_name)
+                return deploy_stack(stack_name, config, base_config, arguments, verbose)
+            raise
 
     (log.info if verbose else log.debug)("Finished Deployment", name=stack_name)
 
@@ -332,6 +361,7 @@ def main():
     parser.add_argument("--parallel", help="Deploy stacks in parallel", action="store_true")
     parser.add_argument("--delete-deprecated", help="Delete stacks that are not in the config", action="store_true")
     parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=8, type=int)
+    parser.add_argument("--delete-recreate-on-exists-error", help="Delete and recreate stack if it already exists", action="store_true")
 
     args = parser.parse_args()
 
