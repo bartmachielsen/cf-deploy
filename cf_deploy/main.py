@@ -49,6 +49,7 @@ class StackResourceUpdateFailed(Exception):
 def track_stack_events(stack_name, region, verbose=True):
     cf = boto3.client('cloudformation', region_name=region)
     start = time.time()
+    seen_events = set()
     seen_event_ids = set()
 
     while True:
@@ -65,16 +66,18 @@ def track_stack_events(stack_name, region, verbose=True):
                     logical_resource_id=event['LogicalResourceId'],
                 )
                 seen_event_ids.add(event_id)
-
-                if event['ResourceStatus'].endswith('UPDATE_FAILED'):
-                    raise StackResourceUpdateFailed(
-                        reason=event["ResourceStatusReason"]
-                    )
+                seen_events.add(event)
 
         stack = cf.describe_stacks(StackName=stack_name)
         stack_status = stack['Stacks'][0]['StackStatus']
 
         if stack_status.endswith('_COMPLETE') or stack_status.endswith('_FAILED'):
+            if stack_status.endswith("_FAILED"):
+                for event in reversed(seen_events):
+                    if event['ResourceStatus'].endswith('UPDATE_FAILED'):
+                        raise StackResourceUpdateFailed(
+                            reason=event["ResourceStatusReason"]
+                        )
             break
 
         time.sleep(5)
