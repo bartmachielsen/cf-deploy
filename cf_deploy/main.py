@@ -154,6 +154,11 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
             cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
             log.info("Stack deleted, retrying change stack.", name=stack_name)
             return create_change_stack(stack_name, config, base_config, verbose)
+        if "Rate exceeded" in error["Message"]:
+            log.warning("Rate exceeded, retrying", name=stack_name)
+            time.sleep(5)
+            return create_change_stack(stack_name, config, base_config, verbose)
+
         log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
         return
 
@@ -368,6 +373,7 @@ def main():
     parser.add_argument("--delete-deprecated", help="Delete stacks that are not in the config", action="store_true")
     parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=8, type=int)
     parser.add_argument("--delete-recreate-on-exists-error", help="Delete and recreate stack if it already exists", action="store_true")
+    parser.add_argument("--delete", help="Delete stacks matching", action="store_true")
 
     args = parser.parse_args()
 
@@ -382,6 +388,14 @@ def main():
             base_config = BaseConfig(**always_merger.merge(base_config, yaml.load(base_config_file, Loader=Loader)))
 
     configs: List[Config] = list(loading_config(args.config, base_config, args))
+
+    if args.delete:
+        cf = boto3.client('cloudformation', region_name=args.region)
+        for config in configs:
+            stack_name = f"{base_config.prefix or ''}{config.name}"
+            log.info("Deleting stack", name=stack_name)
+            cf.delete_stack(StackName=stack_name)
+        return
 
     # Load configs
     if args.parallel:
