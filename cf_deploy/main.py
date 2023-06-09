@@ -264,16 +264,19 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     #         StackName=stack_name
     #     )
 
-    try:
-        cf.execute_change_set(
-            StackName=stack_name,
-            ChangeSetName=change_set_id,
-        )
-    except Exception as e:
-        if "cannot be executed in its current status of [CREATE_IN_PROGRESS]" in str(e):
-            log.info("Stack is in CREATE_IN_PROGRESS, skipping", name=stack_name)
-            return
-        raise e
+    while True:
+        try:
+            cf.execute_change_set(
+                StackName=stack_name,
+                ChangeSetName=change_set_id,
+            )
+            break
+        except Exception as e:
+            if "[CREATE_IN_PROGRESS]" in str(e):
+                log.warning("Stack is in CREATE_IN_PROGRESS, waiting", name=stack_name)
+                time.sleep(3)
+                continue
+            raise e
 
     if not arguments.skip_wait:
         try:
