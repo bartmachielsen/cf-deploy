@@ -276,6 +276,17 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                 log.warning("Stack is in CREATE_IN_PROGRESS, waiting", name=stack_name)
                 time.sleep(3)
                 continue
+            if "DELETE_FAILED" in str(e):
+                log.warning("Stack is in DELETE_FAILED, retrying delete ...", name=stack_name)
+                cf.delete_stack(StackName=stack_name)
+                try:
+                    track_stack_events(stack_name, config.region)
+                except ClientError as e:
+                    if "does not exist" not in str(e):
+                        raise e
+
+                    log.info("Stack deleted", name=stack_name)
+                continue
             raise e
 
     if not arguments.skip_wait:
