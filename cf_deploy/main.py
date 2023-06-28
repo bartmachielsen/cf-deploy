@@ -148,14 +148,16 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         if error["Code"] == "ValidationError" and "No updates are to be performed" in error["Message"]:
             (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
             return
+
         if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
             log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
             cf.delete_stack(StackName=stack_name)
             cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
             log.info("Stack deleted, retrying change stack.", name=stack_name)
             return create_change_stack(stack_name, config, base_config, verbose)
-        if "Rate exceeded" in error["Message"]:
-            log.warning("Rate exceeded, retrying", name=stack_name)
+
+        if "Throttling" in str(e) or "Rate exceeded" in str(e) or "ConnectionClosedError" in str(e):
+            log.debug("Rate exceeded, retrying", name=stack_name)
             time.sleep(5)
             return create_change_stack(stack_name, config, base_config, verbose)
 
@@ -180,10 +182,10 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                 ChangeSetName=change_set_response['Id'],
             )
         except ClientError as e:
-            if "Throttling" not in str(e):
+            if "Throttling" not in str(e) and "Rate exceeded" not in str(e) and "ConnectionClosedError" not in str(e):
                 raise e
 
-            log.warning("Throttling, retrying", name=stack_name)
+            log.debug("Throttling, retrying", name=stack_name)
             sleep_backoff = min(sleep_backoff * 2, 60)
             time.sleep(sleep_backoff)
             change_set = None
@@ -237,12 +239,14 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     log.info("Stack deleted", name=stack_name)
         return
 
-
-    try:
-        change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
-    except Exception as e:
-        log.exception(e, stack_name=stack_name)
-        return
+    while True:
+        try:
+            change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
+        except botocore.exceptions.ConnectionClosedError:
+            continue
+        except Exception as e:
+            log.exception(e, stack_name=stack_name)
+            return
 
     if arguments.dry_run or not change_set_id:
         return
@@ -275,17 +279,6 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
             if "[CREATE_IN_PROGRESS]" in str(e):
                 log.warning("Stack is in CREATE_IN_PROGRESS, waiting", name=stack_name)
                 time.sleep(3)
-                continue
-            if "DELETE_FAILED" in str(e):
-                log.warning("Stack is in DELETE_FAILED, retrying delete ...", name=stack_name)
-                cf.delete_stack(StackName=stack_name)
-                try:
-                    track_stack_events(stack_name, config.region)
-                except ClientError as e:
-                    if "does not exist" not in str(e):
-                        raise e
-
-                    log.info("Stack deleted", name=stack_name)
                 continue
             raise e
 
