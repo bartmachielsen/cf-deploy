@@ -182,10 +182,10 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                 ChangeSetName=change_set_response['Id'],
             )
         except ClientError as e:
-            if "Throttling" not in str(e) and "Rate exceeded" not in str(e) and "ConnectionClosedError" not in str(e):
+            if "Throttling" not in str(e):
                 raise e
 
-            log.debug("Throttling, retrying", name=stack_name)
+            log.warning("Throttling, retrying", name=stack_name)
             sleep_backoff = min(sleep_backoff * 2, 60)
             time.sleep(sleep_backoff)
             change_set = None
@@ -239,10 +239,12 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     log.info("Stack deleted", name=stack_name)
         return
 
-    while True:
+    change_set_id = None
+    while not change_set_id:
         try:
             change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
-        except botocore.exceptions.ConnectionClosedError:
+        except botocore.exceptions.ConnectionClosedError as e:
+            log.debug("Connection closed, retrying", name=stack_name, error=e)
             continue
         except Exception as e:
             log.exception(e, stack_name=stack_name)
@@ -299,6 +301,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     if "does not exist" not in str(e):
                         log.exception(e, stack_name=stack_name)
                         raise e
+                    raise e
 
                 log.info("Stack deleted", name=stack_name)
                 return deploy_stack(stack_name, config, base_config, arguments, verbose)
