@@ -14,7 +14,7 @@ from typing import Optional, Generator, Iterable, List
 import boto3
 import botocore
 import yaml
-from botocore.exceptions import ClientError, ValidationError, WaiterError
+from botocore.exceptions import ClientError, ValidationError, WaiterError, ConnectionClosedError
 from deepmerge import always_merger
 from tqdm import tqdm
 from yaml import Loader
@@ -80,7 +80,7 @@ def track_stack_events(stack_name, region, verbose=True):
                         )
             break
 
-        time.sleep(5)
+        time.sleep(10)
 
 
 def create_change_stack(stack_name, config: Config, base_config: BaseConfig, verbose=True) -> Optional[str]:
@@ -95,7 +95,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     stack = next((
         stack
         for stack in stacks
-        if stack["StackName"] == stack_name
+        if stack["StackName"]==stack_name
     ), None)
 
     if stack and "IN_PROGRESS" in stack["StackStatus"] and "REVIEW_IN_PROGRESS" not in stack["StackStatus"]:
@@ -122,47 +122,59 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     # Create change set
     (log.info if verbose else log.debug)("Creating change set", name=stack_name)
-    try:
-        change_set_response = cf.create_change_set(
-            StackName=stack_name,
-            TemplateBody=config.template,
-            Parameters=[
-                {'ParameterKey': k, 'ParameterValue': str(v)}
-                for k, v in parameters.items()
-                if k in template_parameter_keys or not template_parameter_keys
-            ],
-            Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
-            Capabilities=config.capabilities or [],
-            ChangeSetName=f"{stack_name}-changeset-{int(time.time())}",
-            ChangeSetType=(
-                "UPDATE"
-                if stack and stack["StackStatus"] != "DELETE_COMPLETE"
-                   and stack["StackStatus"] != "REVIEW_IN_PROGRESS"
-                else
-                "CREATE"
-            ),
-            IncludeNestedStacks=True,
-        )
-    except ClientError as e:
-        error = e.response["Error"]
-        if error["Code"] == "ValidationError" and "No updates are to be performed" in error["Message"]:
-            (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
-            return
+    change_set_response = None
+    sleep_backoff = 1
+    while True:
+        try:
+            change_set_response = cf.create_change_set(
+                StackName=stack_name,
+                TemplateBody=config.template,
+                Parameters=[
+                    {'ParameterKey': k, 'ParameterValue': str(v)}
+                    for k, v in parameters.items()
+                    if k in template_parameter_keys or not template_parameter_keys
+                ],
+                Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
+                Capabilities=config.capabilities or [],
+                ChangeSetName=f"{stack_name}-changeset-{int(time.time())}",
+                ChangeSetType=(
+                    "UPDATE"
+                    if stack and stack["StackStatus"]!="DELETE_COMPLETE"
+                       and stack["StackStatus"]!="REVIEW_IN_PROGRESS"
+                    else
+                    "CREATE"
+                ),
+                IncludeNestedStacks=True,
+            )
+        except ConnectionClosedError as e:
+            log.debug("Throttling, retrying", name=stack_name)
+            sleep_backoff = min(sleep_backoff * 2, 60)
+            time.sleep(sleep_backoff)
+            continue
 
-        if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
-            log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
-            cf.delete_stack(StackName=stack_name)
-            cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
-            log.info("Stack deleted, retrying change stack.", name=stack_name)
-            return create_change_stack(stack_name, config, base_config, verbose)
+        except ClientError as e:
+            error = e.response["Error"]
+            if error["Code"]=="ValidationError" and "No updates are to be performed" in error["Message"]:
+                (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
+                return None
+            if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
+                log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
+                cf.delete_stack(StackName=stack_name)
+                cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
+                log.info("Stack deleted, retrying change stack.", name=stack_name)
+                continue
 
-        if "Throttling" in str(e) or "Rate exceeded" in str(e) or "ConnectionClosedError" in str(e):
-            log.debug("Rate exceeded, retrying", name=stack_name)
-            time.sleep(5)
-            return create_change_stack(stack_name, config, base_config, verbose)
+            if "Throttling" in str(e) or "Rate exceeded" in str(e) or "ConnectionClosedError" in str(e):
+                log.debug("Throttling, retrying", name=stack_name)
+                sleep_backoff = min(sleep_backoff * 2, 60)
+                time.sleep(sleep_backoff)
+                continue
 
-        log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
-        return
+            log.error(f"Failed to create change set: {error['Message']}", name=stack_name)
+            raise e
+
+        if change_set_response:
+            break
 
     # Wait for changeset to be created
     waiter = cf.get_waiter('change_set_create_complete')
@@ -174,7 +186,6 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         pass
 
     # Get Change set
-    sleep_backoff = 1
     while True:
         try:
             change_set = cf.describe_change_set(
@@ -184,16 +195,14 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         except ClientError as e:
             if "Throttling" not in str(e):
                 raise e
-
-            log.warning("Throttling, retrying", name=stack_name)
-            sleep_backoff = min(sleep_backoff * 2, 60)
-            time.sleep(sleep_backoff)
             change_set = None
 
-        if change_set:
+        if change_set and change_set["Status"] in ["CREATE_COMPLETE", "CREATE_FAILED", "FAILED"]:
             break
 
-    if change_set['Status'] == 'FAILED':
+        time.sleep(5)
+
+    if change_set['Status']=='FAILED':
         if "The submitted information didn't contain changes" in change_set['StatusReason'] or \
                 "No updates are to be performed." in change_set['StatusReason']:
             (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
@@ -239,22 +248,13 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     log.info("Stack deleted", name=stack_name)
         return
 
-    change_set_id = None
-    while not change_set_id:
-        try:
-            change_set_id = create_change_stack(stack_name, config, base_config , verbose=verbose)
-        except botocore.exceptions.ConnectionClosedError as e:
-            log.debug("Connection closed, retrying", name=stack_name, error=e)
-            continue
-        except Exception as e:
-            log.exception(e, stack_name=stack_name)
-            return
+    change_set_id = create_change_stack(stack_name, config, base_config, verbose=verbose)
 
     if arguments.dry_run or not change_set_id:
         return
 
     if arguments.confirmation_required:
-        if input("Do you want to deploy? (y/n)  ") != "y":
+        if input("Do you want to deploy? (y/n)  ")!="y":
             log.info("Aborting deployment")
             return
 
@@ -270,6 +270,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     #         StackName=stack_name
     #     )
 
+    sleep_backoff = 1
     while True:
         try:
             cf.execute_change_set(
@@ -278,9 +279,11 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
             )
             break
         except Exception as e:
+            print(str(e))
             if "[CREATE_IN_PROGRESS]" in str(e):
                 log.warning("Stack is in CREATE_IN_PROGRESS, waiting", name=stack_name)
-                time.sleep(3)
+                sleep_backoff = min(sleep_backoff * 2, 60)
+                time.sleep(sleep_backoff)
                 continue
             raise e
 
@@ -361,16 +364,16 @@ def list_deprecated_stacks(prefix: str, arguments, configs: List[Config]) -> Ite
             if not stack["StackName"].startswith(prefix):
                 continue
 
-            if stack["StackStatus"] == "DELETE_COMPLETE":
+            if stack["StackStatus"]=="DELETE_COMPLETE":
                 continue
 
-            if any(config for config in configs if f"{prefix}{config.name}" == stack["StackName"]):
+            if any(config for config in configs if f"{prefix}{config.name}"==stack["StackName"]):
                 continue
 
             # Get stack tags
             stack_details = cf.describe_stacks(StackName=stack["StackName"])["Stacks"][0]
             stack_tags = {tag["Key"]: tag["Value"] for tag in stack_details["Tags"]}
-            if stack_tags.get("DeployTool") != "cf-deploy":
+            if stack_tags.get("DeployTool")!="cf-deploy":
                 continue
 
             yield stack["StackName"]
@@ -454,7 +457,7 @@ def main():
                 continue
 
             if args.confirmation_required:
-                if input("Do you want to delete? (y/n)  ") != "y":
+                if input("Do you want to delete? (y/n)  ")!="y":
                     log.info("Aborting deletion")
                     return
 
@@ -469,7 +472,7 @@ def main():
                     log.info("Stack deleted", name=stack)
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     try:
         main()
     except Exception as e:
