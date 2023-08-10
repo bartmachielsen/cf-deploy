@@ -247,10 +247,22 @@ def delete_failed_change_sets(stack_name):
     failed_change_sets = [cs for cs in response['Summaries'] if cs['Status']=='FAILED']
 
     # Delete each failed change set
+    sleep_backoff = 1
     for cs in failed_change_sets:
         log.debug(f"Deleting failed change set {cs['ChangeSetId']}...")
-        client.delete_change_set(ChangeSetName=cs['ChangeSetId'], StackName=stack_name)
+        while True:
+            try:
+                client.delete_change_set(ChangeSetName=cs['ChangeSetId'], StackName=stack_name)
+                break
+            except ClientError as e:
+                if "Throttling" in str(e) or "Rate exceeded" in str(e) or "ConnectionClosedError" in str(e):
+                    log.debug("Throttling, retrying", name=stack_name)
+                    sleep_backoff = min(sleep_backoff * 2, 60)
+                    time.sleep(sleep_backoff)
+                    continue
+
         log.debug(f"Change set {cs['ChangeSetId']} deleted successfully.")
+
 
 def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, verbose=True):
     cf = boto3.client('cloudformation', region_name=config.region)
