@@ -157,6 +157,12 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
             if error["Code"]=="ValidationError" and "No updates are to be performed" in error["Message"]:
                 (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
                 return None
+
+            if "ChangeSet limit exceeded for stack" in error["Message"]:
+                log.warning("Deleting change sets, because of ChangeSet limit exceeded", name=stack_name)
+                delete_failed_change_sets(stack_name)
+                continue
+
             if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
                 log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
                 cf.delete_stack(StackName=stack_name)
@@ -223,6 +229,28 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
     return change_set_response['Id']
 
+
+def delete_failed_change_sets(stack_name):
+    """
+    Delete all failed change sets associated with a given CloudFormation stack.
+
+    Parameters:
+    - stack_name: The name of the CloudFormation stack.
+    """
+
+    client = boto3.client('cloudformation')
+
+    # Get all change sets for the stack
+    response = client.list_change_sets(StackName=stack_name)
+
+    # Filter for failed change sets
+    failed_change_sets = [cs for cs in response['Summaries'] if cs['Status']=='FAILED']
+
+    # Delete each failed change set
+    for cs in failed_change_sets:
+        log.debug(f"Deleting failed change set {cs['ChangeSetId']}...")
+        client.delete_change_set(ChangeSetName=cs['ChangeSetId'], StackName=stack_name)
+        log.debug(f"Change set {cs['ChangeSetId']} deleted successfully.")
 
 def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments, verbose=True):
     cf = boto3.client('cloudformation', region_name=config.region)
