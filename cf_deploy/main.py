@@ -146,11 +146,6 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                 ),
                 IncludeNestedStacks=True,
             )
-        except ConnectionClosedError as e:
-            log.debug("Throttling, retrying", name=stack_name)
-            sleep_backoff = min(sleep_backoff * 2, 60)
-            time.sleep(sleep_backoff)
-            continue
 
         except ClientError as e:
             error = e.response["Error"]
@@ -192,23 +187,28 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
         pass
 
     # Get Change set
-    while True:
+    sleep_backoff = 1
+    change_set = None
+    while not change_set:
         try:
             change_set = cf.describe_change_set(
                 StackName=stack_name,
                 ChangeSetName=change_set_response['Id'],
             )
         except ClientError as e:
-            if "Throttling" not in str(e):
-                raise e
-            change_set = None
+            if "Throttling" in str(e) or "Rate exceeded" in str(e) or "ConnectionClosedError" in str(e):
+                log.debug("Throttling, retrying", name=stack_name)
+                sleep_backoff = min(sleep_backoff * 2, 60)
+                time.sleep(sleep_backoff)
+                continue
+            raise e
 
         if change_set and change_set["Status"] in ["CREATE_COMPLETE", "CREATE_FAILED", "FAILED"]:
             break
 
         time.sleep(5)
 
-    if change_set['Status']=='FAILED':
+    if change_set['Status'] == 'FAILED':
         if "The submitted information didn't contain changes" in change_set['StatusReason'] or \
                 "No updates are to be performed." in change_set['StatusReason']:
             (log.info if verbose else log.debug)("No changes to deploy", name=stack_name)
