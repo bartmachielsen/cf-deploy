@@ -355,7 +355,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     (log.info if verbose else log.debug)("Finished Deployment", name=stack_name)
 
 
-def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[Config]:
+def loading_config(path: Path, base_config: Optional[BaseConfig], arguments) -> Iterable[Config]:
     for p in (path if isinstance(path, list) else [path]):
         for file_location in glob.glob(p, recursive=True):
             with open(file_location, 'r') as config_file:
@@ -369,7 +369,10 @@ def loading_config(path: Path, base_config: BaseConfig, arguments) -> Iterable[C
 
                 # Setting default tags
                 config.tags = {
-                    "Name": f"{base_config.prefix or ''}{config.name}",
+                    "Name": (
+                        f"{base_config.prefix or ''}{config.name}"
+                        if base_config else config.name
+                    ),
                     # "Project": arguments.project,
                     "DeployTool": "cf-deploy",
                     **config.tags,
@@ -451,7 +454,10 @@ def main():
     if args.delete:
         cf = boto3.client('cloudformation', region_name=args.region)
         for config in configs:
-            stack_name = f"{base_config.prefix or ''}{config.name}"
+            if base_config:
+                stack_name = f"{base_config.prefix or ''}{config.name}"
+            else:
+                stack_name = config.name
             log.info("Deleting stack", name=stack_name)
             cf.delete_stack(StackName=stack_name)
         return
@@ -463,7 +469,10 @@ def main():
             with ThreadPoolExecutor(max_workers=args.concurrency) as executor, tqdm(total=len(configs), desc="Stacks", unit="stack") as progress_bar:
                 futures: List[Future] = []
                 for config in configs:
-                    stack_name = f"{base_config.prefix or ''}{config.name}"
+                    if base_config:
+                        stack_name = f"{base_config.prefix or ''}{config.name}"
+                    else:
+                        stack_name = config.name
                     futures.append(executor.submit(deploy_stack, stack_name, config, base_config, args, False))
 
                 while futures:
@@ -486,7 +495,10 @@ def main():
 
     else:
         for config in configs:
-            stack_name = f"{base_config.prefix or ''}{config.name}"
+            if base_config:
+                stack_name = f"{base_config.prefix or ''}{config.name}"
+            else:
+                stack_name = config.name
             deploy_stack(stack_name, config, base_config, args)
 
     if base_config and args.delete_deprecated:
