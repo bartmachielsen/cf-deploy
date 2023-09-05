@@ -106,7 +106,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     template_yaml = yaml.safe_load(config.template)
     template_parameter_keys = template_yaml.get("Parameters", {}).keys() if template_yaml and isinstance(template_yaml, dict) else []
 
-    parameters = {**base_config.parameters, **config.parameters}
+    parameters = {**(base_config.parameters if base_config else {}), **config.parameters}
 
     # Resolving references
     for conf_key, conf_val in parameters.items():
@@ -134,7 +134,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                     for k, v in parameters.items()
                     if k in template_parameter_keys or not template_parameter_keys
                 ],
-                Tags=[{'Key': k, 'Value': str(v)} for k, v in {**base_config.tags, **config.tags, 'Name': stack_name}.items()],
+                Tags=[{'Key': k, 'Value': str(v)} for k, v in {**(base_config.tags if base_config else {}), **config.tags, 'Name': stack_name}.items()],
                 Capabilities=config.capabilities or [],
                 ChangeSetName=f"{stack_name}-changeset-{int(time.time())}",
                 ChangeSetType=(
