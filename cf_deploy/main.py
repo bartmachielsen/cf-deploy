@@ -268,7 +268,7 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     cf = boto3.client('cloudformation', region_name=config.region)
 
     if config.disabled or \
-            (base_config.stage and config.deployment_stages and base_config.stage not in config.deployment_stages):
+            (base_config and base_config.stage and config.deployment_stages and base_config.stage not in config.deployment_stages):
         try:
             stacks = cf.describe_stacks(StackName=stack_name)["Stacks"]
         except ClientError:
