@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
-from functools import partial
+from functools import partial, lru_cache
 from pathlib import Path
 from typing import Optional, Generator, Iterable, List
 
@@ -355,6 +355,20 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
     (log.info if verbose else log.debug)("Finished Deployment", name=stack_name)
 
 
+@lru_cache(25)
+def get_template_from_s3(
+    s3_arn: str,
+    aws_region_name: str
+) -> str:
+    """Get configuration from S3."""
+    bucket, key = s3_arn[5:].split('/', 1)
+    log.debug("Downloading from S3", key=key)
+    s3 = boto3.client('s3', region_name=aws_region_name)
+    response = s3.get_object(Bucket=bucket, Key=key)
+    return response['Body'].read().decode('utf-8')
+
+
+
 def loading_config(path: Path, base_config: Optional[BaseConfig], arguments) -> Iterable[Config]:
     for p in (path if isinstance(path, list) else [path]):
         for file_location in glob.glob(p, recursive=True):
@@ -379,11 +393,10 @@ def loading_config(path: Path, base_config: Optional[BaseConfig], arguments) -> 
                 }
 
                 if config.template.startswith('s3://'):
-                    bucket, key = config.template[5:].split('/', 1)
-                    log.debug("Downloading from S3", template=config.template)
-                    s3 = boto3.client('s3', region_name=config.region)
-                    response = s3.get_object(Bucket=bucket, Key=key)
-                    config.template = response['Body'].read().decode('utf-8')
+                    config.template = get_template_from_s3(
+                        config.template,
+                        config.region
+                    )
 
                 # Try to open as file path
                 if os.path.exists(config.template):
@@ -436,6 +449,7 @@ def main():
     parser.add_argument("--concurrency", help="Number of stacks to deploy in parallel", default=8, type=int)
     parser.add_argument("--delete-recreate-on-exists-error", help="Delete and recreate stack if it already exists", action="store_true")
     parser.add_argument("--delete", help="Delete stacks matching", action="store_true")
+    parser.add_argument("--validate", help="Validate stacks matching", action="store_true")
 
     args = parser.parse_args()
 
@@ -460,6 +474,16 @@ def main():
                 stack_name = config.name
             log.info("Deleting stack", name=stack_name)
             cf.delete_stack(StackName=stack_name)
+        return
+
+    if args.validate:
+        cf = boto3.client('cloudformation', region_name=args.region)
+        for config in configs:
+            logging.info(f"Validating: {config.name}")
+            response = cf.validate_template(
+                TemplateBody=config.template
+            )
+            print(response)
         return
 
     # Load configs
