@@ -483,7 +483,6 @@ def main():
             response = cf.validate_template(
                 TemplateBody=config.template
             )
-            print(response)
         return
 
     # Load configs
