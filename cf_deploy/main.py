@@ -165,7 +165,12 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
 
             if "is in UPDATE_ROLLBACK_FAILED state and can not be updated." in error["Message"]:
                 log.info("Deleting stack, because of UPDATE_ROLLBACK_FAILED", name=stack_name)
-                cf.delete_stack(StackName=stack_name)
+
+                extra_args = {}
+                if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+                    extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+
+                cf.delete_stack(StackName=stack_name, **extra_args)
                 cf.get_waiter('stack_delete_complete').wait(StackName=stack_name)
                 log.info("Stack deleted, retrying change stack.", name=stack_name)
                 continue
