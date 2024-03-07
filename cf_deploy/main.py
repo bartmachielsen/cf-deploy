@@ -280,8 +280,12 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
             stacks = []
 
         if stacks:
+            extra_args = {}
+            if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+                extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+
             log.info("Deleting", name=stack_name)
-            cf.delete_stack(StackName=stack_name)
+            cf.delete_stack(StackName=stack_name, **extra_args)
 
             if not arguments.skip_wait:
                 try:
@@ -342,7 +346,12 @@ def deploy_stack(stack_name, config: Config, base_config: BaseConfig, arguments,
                     "Failed to update because of colliding resource, we have to delete stack and recreate", stack_name=stack_name
                 )
                 log.info("Deleting", name=stack_name)
-                cf.delete_stack(StackName=stack_name)
+
+                extra_args = {}
+                if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+                    extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+
+                cf.delete_stack(StackName=stack_name, **extra_args)
                 try:
                     track_stack_events(stack_name, config.region)
                 except ClientError as e:
@@ -478,7 +487,12 @@ def main():
             else:
                 stack_name = config.name
             log.info("Deleting stack", name=stack_name)
-            cf.delete_stack(StackName=stack_name)
+
+            extra_args = {}
+            if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+                extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+
+            cf.delete_stack(StackName=stack_name, **extra_args)
         return
 
     if args.validate:
@@ -541,7 +555,10 @@ def main():
                     log.info("Aborting deletion")
                     return
 
-            cf.delete_stack(StackName=stack)
+            extra_args = {}
+            if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+                extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+            cf.delete_stack(StackName=stack, **extra_args)
             if not args.skip_wait:
                 try:
                     track_stack_events(stack, args.region)
