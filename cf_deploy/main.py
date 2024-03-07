@@ -125,6 +125,10 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
     change_set_response = None
     sleep_backoff = 1
     while True:
+        extra_args = {}
+        if os.environ.get("CF_DEPLOY_ROLE_ARN"):
+            extra_args["RoleARN"] = os.environ["CF_DEPLOY_ROLE_ARN"]
+
         try:
             change_set_response = cf.create_change_set(
                 StackName=stack_name,
@@ -145,7 +149,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                     "CREATE"
                 ),
                 IncludeNestedStacks=True,
-                RoleARN=os.environ.get("CF_DEPLOY_ROLE_ARN"),
+                **extra_args
             )
 
         except ClientError as e:
