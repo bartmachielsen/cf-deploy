@@ -145,6 +145,7 @@ def create_change_stack(stack_name, config: Config, base_config: BaseConfig, ver
                     "CREATE"
                 ),
                 IncludeNestedStacks=True,
+                RoleARN=os.environ.get("CF_DEPLOY_ROLE_ARN"),
             )
 
         except ClientError as e:
