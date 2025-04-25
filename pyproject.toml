@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cf-deploy"
-version = "0.1.55"
+version = "0.1.56"
 description = "A package to automate CloudFormation deployments"
 authors = ["Bart Machielsen <bartmachielsen@gmail.com>"]
 license = "MIT"
@@ -8,13 +8,13 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-boto3 = "~1.20.0"
-deepmerge = "~0.3.0"
-PyYAML = "~6.0.1"
-structlog = "~21.5.0"
-colorama = "~0.4.4"
-pydantic = "~2.11.3"
-tqdm = "~4.65.0"
+boto3 = "^1.20.0"
+deepmerge = "^0.3.0"
+PyYAML = "^6.0.1"
+structlog = "^21.5.0"
+colorama = "^0.4.4"
+pydantic = "^2.11.3"
+tqdm = "^4.65.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
