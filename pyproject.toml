@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "cf-deploy"
-version = "0.1.54"
+version = "0.1.55"
 description = "A package to automate CloudFormation deployments"
 authors = ["Bart Machielsen <bartmachielsen@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.6"
 boto3 = "~1.20.0"
 deepmerge = "~0.3.0"
 PyYAML = "~6.0.1"
